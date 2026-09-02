@@ -1,0 +1,91 @@
+import type { FeatureCollection } from 'geojson';
+
+export const CORRIDOR_GEOJSON: FeatureCollection = {
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ghaziabad – Kanpur Central Rail Corridor",
+        "type": "rail_line",
+        "lineType": "Double Line Electrified",
+        "gauge": "Broad Gauge (1676mm)",
+        "totalKm": 412
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [77.4181, 28.6692],
+          [77.4500, 28.6500],
+          [77.5000, 28.6200],
+          [77.5800, 28.5500],
+          [77.6500, 28.4800],
+          [77.7500, 28.4000],
+          [77.8500, 28.3200],
+          [77.9500, 28.2500],
+          [78.0800, 28.1500],
+          [78.0884, 27.8974],
+          [78.1800, 27.7500],
+          [78.2500, 27.6000],
+          [78.3000, 27.4500],
+          [78.3151, 27.2310],
+          [78.3500, 27.1500],
+          [78.3900, 27.0000],
+          [78.5689, 26.7757],
+          [78.6500, 26.6500],
+          [78.7500, 26.5000],
+          [78.8500, 26.4000],
+          [78.9500, 26.3000],
+          [79.0450, 26.2300],
+          [79.1000, 26.2000],
+          [79.5129, 26.1498],
+          [79.6500, 26.1500],
+          [79.8000, 26.2000],
+          [79.9000, 26.3000],
+          [80.0000, 26.3500],
+          [80.3500, 26.4496]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Ghaziabad", "code": "GZB", "km": 0, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [77.4181, 28.6692] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Aligarh Junction", "code": "ALJN", "km": 126, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [78.0884, 27.8974] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Tundla Junction", "code": "TDL", "km": 191, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [78.2350, 27.2130] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Firozabad", "code": "FZD", "km": 210, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [78.3951, 27.1510] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Shikohabad", "code": "SKB", "km": 240, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [78.5689, 26.8457] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Etawah", "code": "ETW", "km": 287, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [79.0450, 26.7757] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Phaphund", "code": "PHD", "km": 330, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [79.5129, 26.6098] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Kanpur Central", "code": "CNB", "km": 412, "type": "station" },
+      "geometry": { "type": "Point", "coordinates": [80.3500, 26.4496] }
+    }
+  ]
+};

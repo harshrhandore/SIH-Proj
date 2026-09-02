@@ -1,0 +1,486 @@
+/* =============================================================================
+ * RailSync-AI / Gati-Shakti Unified Block Engine — Human-Crafted Design System
+ * =============================================================================
+ * Supports:
+ * 1. Operational Day Mode (:root) — Crisp high-visibility enterprise day theme
+ *    tailored for control room daylight shifts, eliminating AI dark-mode slop.
+ * 2. Low-Glare Night Ops ([data-theme="dark"]) — Refined low-fatigue night palette.
+ * ============================================================================= */
+
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+ * Day Mode Tokens (:root default — Human-Engineered Workstation)
+ * --------------------------------------------------------------------------- */
+:root {
+  /* ── Background palette (Crisp, clean paper and slate) ── */
+  --color-bg-primary: #F8FAFC;         /* Soft slate-50 background */
+  --color-bg-elevated: #FFFFFF;        /* Crisp pure-white card surfaces */
+  --color-bg-hover: #F1F5F9;           /* Slate-100 hover state */
+
+  /* ── Border palette (Subtle, tactile dividers) ── */
+  --color-border-default: #E2E8F0;     /* Slate-200 dividers */
+  --color-border-strong: #CBD5E1;      /* Slate-300 headers and focus rings */
+
+  /* ── Text palette (High contrast, executive readability) ── */
+  --color-text-primary: #0F172A;       /* Slate-900 crisp typography */
+  --color-text-secondary: #475569;     /* Slate-600 clear metadata */
+  --color-text-mono: #0369A1;          /* Deep railway blue for chainage/numerals */
+
+  /* ── Accent palette (Official Indian Railways Semantics) ── */
+  --color-accent-operational: #0284C7; /* Sky/Railway Blue */
+  --color-accent-warning: #B45309;     /* Amber-700 */
+  --color-accent-critical: #B91C1C;    /* Red-700 */
+  --color-accent-success: #15803D;     /* Emerald-700 */
+  --color-accent-neutral: #64748B;     /* Slate-500 */
+
+  /* ── Typography ── */
+  --font-interface: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+  --font-reading: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* ── Font sizes ── */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+
+  /* ── Line heights ── */
+  --leading-xs: 1rem;
+  --leading-sm: 1.25rem;
+  --leading-base: 1.5rem;
+  --leading-lg: 1.75rem;
+  --leading-xl: 1.75rem;
+  --leading-2xl: 2rem;
+
+  /* ── Spacing (4px base rhythm) ── */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-12: 48px;
+
+  /* ── Shadows (Tactile, human-crafted elevation) ── */
+  --shadow-default: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-elevated: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+
+  /* ── Border radius ── */
+  --radius-data: 4px;
+  --radius-panel: 8px;
+  --radius-none: 0px;
+
+  /* ── Layout dimensions ── */
+  --nav-height: 56px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 64px;
+  --status-strip-height: 44px;
+  --content-max-width: 1440px;
+  --grid-gutter: 24px;
+  --drawer-width: 500px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Night Ops Mode Tokens ([data-theme="dark"] — Low Glare Workstation)
+ * --------------------------------------------------------------------------- */
+[data-theme="dark"] {
+  --color-bg-primary: #0B0F17;
+  --color-bg-elevated: #151B26;
+  --color-bg-hover: #1E2636;
+
+  --color-border-default: #263040;
+  --color-border-strong: #38455A;
+
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-text-mono: #7DD3FC;
+
+  --color-accent-operational: #38BDF8;
+  --color-accent-warning: #F59E0B;
+  --color-accent-critical: #EF4444;
+  --color-accent-success: #22C55E;
+  --color-accent-neutral: #64748B;
+
+  --shadow-default: 0 2px 6px 0 rgb(0 0 0 / 0.4);
+  --shadow-elevated: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+ * Global Styles
+ * --------------------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-reading);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  overflow-x: hidden;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* ---------------------------------------------------------------------------
+ * Tabular Numerals
+ * --------------------------------------------------------------------------- */
+
+.font-mono,
+.tabular-nums,
+[data-numeric] {
+  font-family: var(--font-interface);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scrollbar Styling
+ * --------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: var(--radius-data);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+/* ---------------------------------------------------------------------------
+ * Operational Tables — Clean, Human-Designed Workstation Tables
+ * --------------------------------------------------------------------------- */
+
+.ops-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--font-reading);
+}
+
+.ops-table th {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  padding: 10px var(--spacing-3);
+  border-bottom: 1px solid var(--color-border-strong);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ops-table td {
+  padding: 10px var(--spacing-3);
+  border-bottom: 1px solid var(--color-border-default);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--color-text-primary);
+}
+
+/* Alternating rows */
+.ops-table tr:nth-child(even) td {
+  background: var(--color-bg-elevated);
+}
+
+.ops-table tr:nth-child(odd) td {
+  background: var(--color-bg-primary);
+}
+
+/* Sticky first column */
+.ops-table td:first-child,
+.ops-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  font-family: var(--font-interface);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hover row */
+.ops-table tr:hover td {
+  background: var(--color-bg-hover) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * Status Tags with Dot Indicators (Real Enterprise UX)
+ * --------------------------------------------------------------------------- */
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-interface);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-tag::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-tag--normal {
+  background: rgba(21, 128, 61, 0.12);
+  color: var(--color-accent-success);
+  border: 1px solid rgba(21, 128, 61, 0.25);
+}
+
+.status-tag--warning {
+  background: rgba(180, 83, 9, 0.12);
+  color: var(--color-accent-warning);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+}
+
+.status-tag--critical {
+  background: rgba(185, 28, 28, 0.12);
+  color: var(--color-accent-critical);
+  border: 1px solid rgba(185, 28, 28, 0.25);
+}
+
+.status-tag--info {
+  background: rgba(2, 132, 199, 0.12);
+  color: var(--color-accent-operational);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+.status-tag--neutral {
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--color-text-secondary);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+/* ---------------------------------------------------------------------------
+ * Department Tags
+ * --------------------------------------------------------------------------- */
+
+.dept-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--radius-data);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dept-tag--civil {
+  background: rgba(2, 132, 199, 0.1);
+  color: var(--color-accent-operational);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+.dept-tag--electrical {
+  background: rgba(180, 83, 9, 0.1);
+  color: var(--color-accent-warning);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+}
+
+.dept-tag--snt {
+  background: rgba(21, 128, 61, 0.1);
+  color: var(--color-accent-success);
+  border: 1px solid rgba(21, 128, 61, 0.25);
+}
+
+.dept-tag--operating {
+  background: rgba(71, 85, 105, 0.1);
+  color: var(--color-text-secondary);
+  border: 1px solid rgba(71, 85, 105, 0.25);
+}
+
+/* ---------------------------------------------------------------------------
+ * Buttons — Tactile, Human-Crafted
+ * --------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  padding: 7px 14px;
+  border-radius: var(--radius-data);
+  font-family: var(--font-reading);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: var(--leading-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 150ms ease-out;
+  outline: none;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-accent-operational);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn--primary {
+  background: var(--color-accent-operational);
+  color: #FFFFFF;
+  border-color: var(--color-accent-operational);
+}
+
+.btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+  box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.12);
+}
+
+.btn--danger {
+  background: var(--color-accent-critical);
+  color: #FFFFFF;
+  border-color: var(--color-accent-critical);
+}
+
+.btn--danger:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.btn--secondary {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-default);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+/* ---------------------------------------------------------------------------
+ * Panels & Cards — Clean White Elevation with Crisp Dividers
+ * --------------------------------------------------------------------------- */
+
+.panel {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-default);
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.panel--interactive:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-elevated);
+}
+
+/* ---------------------------------------------------------------------------
+ * Tricolor Accent Strip (Authentic GovTech Identity)
+ * --------------------------------------------------------------------------- */
+
+.gov-tricolor-strip {
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(
+    to right,
+    #FF9933 0%,
+    #FF9933 33.3%,
+    #FFFFFF 33.3%,
+    #FFFFFF 66.6%,
+    #138808 66.6%,
+    #138808 100%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Leaflet Map Overrides
+ * --------------------------------------------------------------------------- */
+
+.leaflet-container {
+  background: var(--color-bg-primary) !important;
+  border-radius: var(--radius-panel);
+}
+
+.leaflet-control-zoom a {
+  background: var(--color-bg-elevated) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border-default) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: var(--color-bg-elevated) !important;
+  color: var(--color-text-primary) !important;
+  border-radius: var(--radius-panel) !important;
+  box-shadow: var(--shadow-elevated) !important;
+  border: 1px solid var(--color-border-default) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-bg-elevated) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * Session Expiry Overlay (EC-07)
+ * --------------------------------------------------------------------------- */
+
+.session-expired-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(6px);
+}
+
+.session-expired-overlay__card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-panel);
+  padding: var(--spacing-8);
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3);
+}
