@@ -62,12 +62,16 @@ export default function LeafletMapInner({
       <MapContainer
         center={[27.3, 78.8]}
         zoom={7}
+        maxZoom={12}
+        preferCanvas={true}
         style={{ height: '100%', width: '100%' }}
         scrollWheelZoom={true}
+        closePopupOnClick={false}
       >
         <TileLayer
           attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          maxZoom={12}
         />
 
         {/* Corridor Track Polyline */}

@@ -17,10 +17,12 @@ import { useState } from 'react';
 import { useOperationalStore } from '@/store/operationalStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { useAuditStore } from '@/store/auditStore';
+import { useNavMode } from '@/hooks/useNavMode';
 import { BLOCK_PROPOSALS } from '@/data/seed';
 import { Bug, X, AlertTriangle, WifiOff, Clock, ShieldAlert } from 'lucide-react';
 
 export default function DebugPanel() {
+  const navMode = useNavMode();
   const [isOpen, setIsOpen] = useState(false);
   const [networkTimeoutBanner, setNetworkTimeoutBanner] = useState(false);
   const [conflictBanner, setConflictBanner] = useState(false);
@@ -131,7 +133,17 @@ export default function DebugPanel() {
       )}
 
       {/* Floating Debug Button (bottom left) */}
-      <div style={{ position: 'fixed', bottom: 'var(--spacing-3)', left: 'var(--spacing-3)', zIndex: 9500 }}>
+      <div
+        style={{
+          position: 'fixed',
+          bottom:
+            navMode === 'mobile'
+              ? 'calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 8px)'
+              : 'var(--spacing-3)',
+          left: 'var(--spacing-3)',
+          zIndex: 9500,
+        }}
+      >
         {!isOpen ? (
           <button
             onClick={() => setIsOpen(true)}

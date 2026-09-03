@@ -16,9 +16,13 @@ import PrimaryActionBar from '@/components/dashboard/PrimaryActionBar';
 import ApprovalQueue from '@/components/dashboard/ApprovalQueue';
 import RecentActivity from '@/components/dashboard/RecentActivity';
 import ApprovalDrawer from '@/components/shared/ApprovalDrawer';
+import { useNavMode } from '@/hooks/useNavMode';
 
 export default function DashboardPage() {
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+  const navMode = useNavMode();
+
+  const isStacked = navMode === 'mobile' || (typeof window !== 'undefined' && window.innerWidth < 1024);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
@@ -28,31 +32,16 @@ export default function DashboardPage() {
       {/* Primary Action Bar */}
       <PrimaryActionBar />
 
-      {/* Below the fold: Two-column layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-4)' }}>
+      {/* Below the fold: Responsive Grid */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isStacked ? '1fr' : '1fr 1fr',
+          gap: 'var(--spacing-4)',
+        }}
+      >
         {/* Approval Queue */}
-        <div className="panel" style={{ overflow: 'hidden' }}>
-          <div
-            style={{
-              padding: 'var(--spacing-3) var(--spacing-4)',
-              borderBottom: '1px solid var(--color-border-default)',
-            }}
-          >
-            <h2
-              style={{
-                fontFamily: 'var(--font-reading)',
-                fontSize: 'var(--text-lg)',
-                fontWeight: 600,
-                color: 'var(--color-text-primary)',
-              }}
-            >
-              Approval Queue
-            </h2>
-          </div>
-          <ApprovalQueue
-            onReviewProposal={(id) => setSelectedProposalId(id)}
-          />
-        </div>
+        <ApprovalQueue onReviewProposal={(id) => setSelectedProposalId(id)} />
 
         {/* Recent Activity */}
         <div className="panel" style={{ overflow: 'hidden' }}>
@@ -64,10 +53,10 @@ export default function DashboardPage() {
           >
             <h2
               style={{
-                fontFamily: 'var(--font-reading)',
-                fontSize: 'var(--text-lg)',
+                fontSize: 'var(--text-base)',
                 fontWeight: 600,
                 color: 'var(--color-text-primary)',
+                margin: 0,
               }}
             >
               Recent Activity
@@ -77,7 +66,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Disconnection Memo Approval Drawer */}
+      {/* Shared Approval Drawer Overlay */}
       <ApprovalDrawer
         isOpen={Boolean(selectedProposalId)}
         proposalId={selectedProposalId}

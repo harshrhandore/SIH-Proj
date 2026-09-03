@@ -3,12 +3,15 @@
 // =============================================================================
 // DigitalSignatureForm — 2-Step Confirmation & Digital Signature Form
 // =============================================================================
-// Step 1: Checkbox acknowledging G&SR checklist & AI analysis.
-// Step 2: Employee ID + 6-digit PIN input + Approve / Reject CTAs.
-// Rejection requires min 20-char sanitized comment.
+// Mobile & Workstation Operational Compliance:
+// - 6 individual auto-advancing numeric PIN boxes (inputMode="tel", 48×56px touch target)
+// - Auto-focus progression from box 1 to 6 and backspace reverse navigation
+// - Stacked 52px high-consequence CTAs (Approve on top, Reject #DA3633 outline below)
+// - Minimum 16px separation between destructive and grant actions
+// - Mandatory sanitized rejection commentary (>20 chars)
 // =============================================================================
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useSessionStore } from '@/store/sessionStore';
 import { sanitizeRejectionComment } from '@/lib/utils/sanitize';
 import { Check, X, ShieldCheck, AlertCircle } from 'lucide-react';
@@ -30,11 +33,13 @@ export default function DigitalSignatureForm({
   const isSectionController = user?.role === 'ROLE_SC';
 
   const [intentConfirmed, setIntentConfirmed] = useState(false);
-  const [pin, setPin] = useState('');
+  const [pinDigits, setPinDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [rejectComment, setRejectComment] = useState('');
   const [isRejectingMode, setIsRejectingMode] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   if (!isSectionController) {
     return (
@@ -54,8 +59,51 @@ export default function DigitalSignatureForm({
     );
   }
 
+  const pin = pinDigits.join('');
   const isPinValid = /^\d{6}$/.test(pin);
   const sanitizedCommentResult = sanitizeRejectionComment(rejectComment);
+
+  // Handle PIN box change & auto-advance
+  const handleDigitChange = (index: number, value: string) => {
+    const cleaned = value.replace(/\D/g, '');
+    if (!cleaned) {
+      const next = [...pinDigits];
+      next[index] = '';
+      setPinDigits(next);
+      return;
+    }
+
+    // Single digit entry
+    const char = cleaned.slice(-1);
+    const next = [...pinDigits];
+    next[index] = char;
+    setPinDigits(next);
+
+    // Auto-advance to next box if not on last
+    if (index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !pinDigits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    const next = [...pinDigits];
+    for (let i = 0; i < 6; i++) {
+      next[i] = pasted[i] || '';
+    }
+    setPinDigits(next);
+    const nextFocus = Math.min(pasted.length, 5);
+    inputRefs.current[nextFocus]?.focus();
+  };
 
   const handleApproveClick = async () => {
     if (isBlockedByGSR) {
@@ -145,6 +193,7 @@ export default function DigitalSignatureForm({
           border: intentConfirmed
             ? '1px solid var(--color-accent-operational)'
             : '1px solid var(--color-border-default)',
+          minHeight: '44px',
         }}
       >
         <input
@@ -152,7 +201,7 @@ export default function DigitalSignatureForm({
           id="confirm-intent-checkbox"
           checked={intentConfirmed}
           onChange={(e) => setIntentConfirmed(e.target.checked)}
-          style={{ marginTop: 2 }}
+          style={{ marginTop: 3, width: 18, height: 18 }}
         />
         <span>
           <strong>Step 1 (Intent Confirmation):</strong> I confirm that I have reviewed the
@@ -160,68 +209,91 @@ export default function DigitalSignatureForm({
         </span>
       </label>
 
-      {/* Step 2: Digital Signature & Action (renders only after Step 1 is confirmed) */}
+      {/* Step 2: Digital Signature & Action */}
       {intentConfirmed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-2)' }}>
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--color-text-secondary)',
-                  marginBottom: 4,
-                }}
-              >
-                Employee ID
-              </label>
-              <input
-                type="text"
-                readOnly
-                value={user?.employeeId || 'SC-4521'}
-                className="font-mono"
-                style={{
-                  width: '100%',
-                  padding: '6px 10px',
-                  background: 'var(--color-bg-hover)',
-                  border: '1px solid var(--color-border-default)',
-                  borderRadius: 'var(--radius-data)',
-                  color: 'var(--color-text-mono)',
-                  fontSize: 'var(--text-xs)',
-                }}
-              />
-            </div>
+          {/* Employee ID Readout */}
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-text-secondary)',
+                marginBottom: 4,
+              }}
+            >
+              Signatory Controller ID
+            </label>
+            <input
+              type="text"
+              readOnly
+              value={`${user?.name} (${user?.employeeId || 'SC-4521'})`}
+              className="font-mono"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                background: 'var(--color-bg-hover)',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-data)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 600,
+              }}
+            />
+          </div>
 
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--color-text-secondary)',
-                  marginBottom: 4,
-                }}
-              >
-                PIN / OTP (6 digits)
-              </label>
-              <input
-                type="password"
-                maxLength={6}
-                id="digital-signature-pin"
-                placeholder="••••••"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                className="font-mono"
-                style={{
-                  width: '100%',
-                  padding: '6px 10px',
-                  background: 'var(--color-bg-elevated)',
-                  border: '1px solid var(--color-border-default)',
-                  borderRadius: 'var(--radius-data)',
-                  color: 'var(--color-text-primary)',
-                  fontSize: 'var(--text-xs)',
-                  letterSpacing: '0.2em',
-                }}
-              />
+          {/* 6-Digit Individual PIN Input Boxes */}
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-text-secondary)',
+                marginBottom: 6,
+                fontWeight: 600,
+              }}
+            >
+              Authorization PIN / OTP (6 Digits):
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                justifyContent: 'space-between',
+              }}
+              onPaste={handlePaste}
+            >
+              {pinDigits.map((digit, i) => (
+                <input
+                  key={i}
+                  ref={(el) => {
+                    inputRefs.current[i] = el;
+                  }}
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handleDigitChange(i, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(i, e)}
+                  aria-label={`PIN Digit ${i + 1}`}
+                  className="font-mono"
+                  style={{
+                    flex: 1,
+                    maxWidth: '48px',
+                    height: '52px',
+                    textAlign: 'center',
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    borderRadius: 'var(--radius-panel)',
+                    border: digit
+                      ? '2px solid var(--color-accent-operational)'
+                      : '1px solid var(--color-border-strong)',
+                    background: 'var(--color-bg-elevated)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                />
+              ))}
             </div>
           </div>
 
@@ -234,9 +306,10 @@ export default function DigitalSignatureForm({
                   fontSize: 'var(--text-xs)',
                   color: 'var(--color-accent-critical)',
                   marginBottom: 4,
+                  fontWeight: 600,
                 }}
               >
-                Mandatory Rejection Comment (min 20 characters):
+                Mandatory Rejection Operational Ground (min 20 characters):
               </label>
               <textarea
                 value={rejectComment}
@@ -245,10 +318,10 @@ export default function DigitalSignatureForm({
                 rows={3}
                 style={{
                   width: '100%',
-                  padding: '6px 10px',
+                  padding: '8px 12px',
                   background: 'var(--color-bg-elevated)',
                   border: '1px solid var(--color-border-default)',
-                  borderRadius: 'var(--radius-data)',
+                  borderRadius: 'var(--radius-panel)',
                   color: 'var(--color-text-primary)',
                   fontSize: 'var(--text-xs)',
                   resize: 'vertical',
@@ -257,30 +330,30 @@ export default function DigitalSignatureForm({
               <div
                 style={{
                   fontSize: '10px',
-                  color:
-                    sanitizedCommentResult.isValid
-                      ? 'var(--color-accent-success)'
-                      : 'var(--color-text-secondary)',
+                  color: sanitizedCommentResult.isValid
+                    ? 'var(--color-accent-success)'
+                    : 'var(--color-accent-critical)',
                   marginTop: 2,
                 }}
               >
-                Length: {sanitizedCommentResult.sanitized.length}/20 min chars
+                {rejectComment.length}/20 characters required
               </div>
             </div>
           )}
 
+          {/* Error Message */}
           {errorMsg && (
             <div
               style={{
-                padding: 'var(--spacing-2)',
-                background: 'rgba(218, 54, 51, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 10px',
+                background: 'rgba(239, 68, 68, 0.1)',
                 border: '1px solid var(--color-accent-critical)',
                 borderRadius: 'var(--radius-data)',
                 color: 'var(--color-accent-critical)',
                 fontSize: 'var(--text-xs)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
               }}
             >
               <AlertCircle size={14} />
@@ -288,69 +361,92 @@ export default function DigitalSignatureForm({
             </div>
           )}
 
-          {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+          {/* Action CTAs (Stacked vertically with minimum 16px gap on destructive) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: 4 }}>
             {!isRejectingMode ? (
               <>
                 <button
                   type="button"
-                  id="approve-memo-btn"
-                  className="btn btn--primary"
-                  disabled={!isPinValid || isBlockedByGSR || isSubmitting}
+                  id="drawer-approve-btn"
                   onClick={handleApproveClick}
-                  style={{ flex: 1, fontSize: 'var(--text-xs)' }}
+                  disabled={isSubmitting || isBlockedByGSR}
+                  className="btn btn--primary"
+                  style={{
+                    width: '100%',
+                    height: '52px',
+                    justifyContent: 'center',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 700,
+                    opacity: isBlockedByGSR ? 0.5 : 1,
+                  }}
                 >
-                  <Check size={14} />
-                  {isSubmitting ? 'Authorizing...' : '✓ Approve Block Memo'}
+                  <Check size={18} />
+                  <span>{isSubmitting ? 'Granting Block...' : 'Approve & Grant Block Window'}</span>
                 </button>
 
                 <button
                   type="button"
-                  className="btn btn--danger"
+                  data-action-type="destructive"
                   onClick={() => setIsRejectingMode(true)}
-                  style={{ fontSize: 'var(--text-xs)' }}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    height: '52px',
+                    borderRadius: 'var(--radius-panel)',
+                    border: '1.5px solid #DA3633',
+                    background: 'transparent',
+                    color: '#DA3633',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
                 >
-                  <X size={14} />
-                  Reject
+                  <X size={18} />
+                  <span>Reject Block Proposal...</span>
                 </button>
               </>
             ) : (
               <>
                 <button
                   type="button"
-                  id="confirm-reject-btn"
-                  className="btn btn--danger"
-                  disabled={!isPinValid || !sanitizedCommentResult.isValid || isSubmitting}
+                  data-action-type="destructive"
                   onClick={handleRejectClick}
-                  style={{ flex: 1, fontSize: 'var(--text-xs)' }}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    height: '52px',
+                    borderRadius: 'var(--radius-panel)',
+                    border: 'none',
+                    background: '#DA3633',
+                    color: '#FFFFFF',
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
                 >
-                  <X size={14} />
-                  {isSubmitting ? 'Processing...' : 'Confirm Rejection'}
+                  <X size={18} />
+                  <span>{isSubmitting ? 'Rejecting...' : 'Confirm Formal Block Rejection'}</span>
                 </button>
 
                 <button
                   type="button"
-                  className="btn btn--secondary"
                   onClick={() => setIsRejectingMode(false)}
-                  style={{ fontSize: 'var(--text-xs)' }}
+                  className="btn btn--secondary"
+                  style={{ width: '100%', height: '48px', justifyContent: 'center' }}
                 >
-                  Back
+                  Cancel Rejection
                 </button>
               </>
             )}
           </div>
-
-          {isBlockedByGSR && (
-            <div
-              style={{
-                fontSize: '11px',
-                color: 'var(--color-accent-critical)',
-                textAlign: 'center',
-              }}
-            >
-              Approval blocked: G&amp;SR violation. Contact Sr. DOM.
-            </div>
-          )}
         </div>
       )}
     </div>

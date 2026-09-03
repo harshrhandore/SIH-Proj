@@ -1,24 +1,68 @@
 'use client';
 
 // =============================================================================
-// useMareyDiagram Hook — HTML5 Canvas Time-Distance Renderer
+// useMareyDiagram Hook — Interactive HTML5 Canvas Renderer
 // =============================================================================
-// Renders the Marey diagram for the Ghaziabad–Kanpur corridor (km 0 to 412).
-// X-axis: Time (6:00 to 24:00 IST)
-// Y-axis: Distance (km 0 at Ghaziabad to km 412 at Kanpur Central)
-// Smooth rendering with requestAnimationFrame, pan, zoom, and interactive clicks.
+// Pointer Events API implementation:
+// - Single-pointer drag pan with momentum decay (0.92/frame)
+// - Two-pointer pinch-to-zoom anchored to touch midpoint
+// - Tap detection (<8px move) with 20px radius hit testing
+// - Train path tap tooltip
+// - DPR-aware canvas scaling
+// - Low-performance / reduced-motion dirty flag rendering
 // =============================================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { TrainService, BlockProposal, TrackSegment } from '@/types/railway';
-import { STATIONS } from '@/data/seed';
+import type { TrainService, BlockProposal } from '@/types/railway';
 import { useThemeStore } from '@/store/themeStore';
+import { usePerformanceStore } from '@/store/performanceStore';
 
 interface UseMareyDiagramProps {
   trains: TrainService[];
   proposals: BlockProposal[];
   selectedProposalId: string | null;
   onSelectBlock: (proposalId: string) => void;
+}
+
+export interface HoveredBlockState {
+  proposal: BlockProposal;
+  x: number;
+  y: number;
+}
+
+export interface SelectedTrainState {
+  train: TrainService;
+  x: number;
+  y: number;
+}
+
+// 8 Corridor Stations along Ghaziabad – Kanpur Central (412 km)
+const STATIONS = [
+  { code: 'GZB', stationName: 'Ghaziabad', kmMark: 0 },
+  { code: 'ALJN', stationName: 'Aligarh Jn', kmMark: 106 },
+  { code: 'TDL', stationName: 'Tundla Jn', kmMark: 205 },
+  { code: 'SKB', stationName: 'Shikohabad', kmMark: 241 },
+  { code: 'ETW', stationName: 'Etawah Jn', kmMark: 297 },
+  { code: 'PHD', stationName: 'Phaphund', kmMark: 352 },
+  { code: 'RURA', stationName: 'Rura', kmMark: 385 },
+  { code: 'CNB', stationName: 'Kanpur Central', kmMark: 412 },
+];
+
+const TOTAL_KM = 412;
+const START_MINUTE = 0; // 00:00 IST
+const END_MINUTE = 1440; // 24:00 IST
+const TOTAL_MINUTES = 1440;
+
+function getMinutesFromISO(isoString: string): number {
+  const d = new Date(isoString);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function formatMinutesToTime(minutes: number): string {
+  const m = Math.max(0, Math.floor(minutes)) % 1440;
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 export function useMareyDiagram({
@@ -31,54 +75,66 @@ export function useMareyDiagram({
   const theme = useThemeStore((s) => s.theme);
   const isDark = theme === 'dark';
 
-  // Zoom & Pan state
-  const [zoom, setZoom] = useState(1); // 1 = full 18-hour view
-  const [panX, setPanX] = useState(0); // in pixels
-  const [hoveredBlock, setHoveredBlock] = useState<{
-    proposal: BlockProposal;
-    x: number;
-    y: number;
-  } | null>(null);
+  const isLowPerformance = usePerformanceStore((s) => s.isLowPerformance);
+  const canvasDirty = usePerformanceStore((s) => s.canvasDirty);
+  const setCanvasDirty = usePerformanceStore((s) => s.setCanvasDirty);
 
-  // Drag state
-  const isDraggingRef = useRef(false);
-  const dragStartXRef = useRef(0);
-  const currentPanXRef = useRef(0);
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [panX, setPanX] = useState<number>(0);
+  const [hoveredBlock, setHoveredBlock] = useState<HoveredBlockState | null>(null);
+  const [selectedTrain, setSelectedTrain] = useState<SelectedTrainState | null>(null);
 
-  // Time domain constants: 6:00 (360 min) to 24:00 (1440 min)
-  const START_MINUTE = 6 * 60; // 360
-  const END_MINUTE = 24 * 60;  // 1440
-  const TOTAL_MINUTES = END_MINUTE - START_MINUTE; // 1080 min (18 hours)
-  const TOTAL_KM = 412;
+  // Multi-pointer tracking
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const dragStartRef = useRef<{ x: number; y: number; initialPan: number } | null>(null);
+  const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const pinchDistanceRef = useRef<number | null>(null);
 
-  // Margin configuration
-  const MARGIN = { top: 30, right: 30, bottom: 40, left: 110 };
+  // Momentum velocity
+  const velocityRef = useRef<number>(0);
+  const lastPanTimeRef = useRef<number>(0);
+  const lastPanXRef = useRef<number>(0);
+  const momentumAnimRef = useRef<number | null>(null);
 
-  // Parse ISO date string to minutes since midnight IST
-  const getMinutesFromISO = (isoStr: string): number => {
-    try {
-      const d = new Date(isoStr);
-      // Convert to IST
-      const istHours = d.getUTCHours() + 5 + Math.floor((d.getUTCMinutes() + 30) / 60);
-      const istMinutes = (d.getUTCMinutes() + 30) % 60;
-      return (istHours % 24) * 60 + istMinutes;
-    } catch {
-      return 720;
-    }
-  };
+  // Margins responsive
+  const getMargin = useCallback((canvasWidth: number) => {
+    const isNarrow = canvasWidth < 600;
+    return {
+      top: 40,
+      bottom: 30,
+      left: isNarrow ? 65 : 90,
+      right: isNarrow ? 20 : 30,
+    };
+  }, []);
 
+  // Main Canvas Render Loop
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     let animationFrameId: number;
 
     const render = () => {
-      const width = canvas.width;
-      const height = canvas.height;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+
+      if (width === 0 || height === 0) {
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
+
+      if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      const MARGIN = getMargin(width);
 
       // Clear background
       ctx.fillStyle = isDark ? '#0B0F17' : '#FFFFFF';
@@ -90,7 +146,7 @@ export function useMareyDiagram({
       // Coordinate transformers
       const timeToX = (minutes: number) => {
         const normalized = (minutes - START_MINUTE) / TOTAL_MINUTES;
-        return MARGIN.left + (normalized * plotWidth * zoom) + panX;
+        return MARGIN.left + normalized * plotWidth * zoom + panX;
       };
 
       const kmToY = (km: number) => {
@@ -98,14 +154,13 @@ export function useMareyDiagram({
       };
 
       // 1. Draw station horizontal lines & labels (Y-axis)
-      ctx.font = '11px Inter, sans-serif';
+      ctx.font = width < 500 ? '9px Inter, sans-serif' : '11px Inter, sans-serif';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
 
       STATIONS.forEach((station) => {
         const y = kmToY(station.kmMark);
 
-        // Station line
         ctx.strokeStyle = isDark ? '#21262D' : '#E2E8F0';
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -113,13 +168,12 @@ export function useMareyDiagram({
         ctx.lineTo(width - MARGIN.right, y);
         ctx.stroke();
 
-        // Station label & km
         ctx.fillStyle = isDark ? '#94A3B8' : '#334155';
-        ctx.fillText(station.stationName, MARGIN.left - 10, y - 6);
+        ctx.fillText(station.stationName, MARGIN.left - 6, y - 5);
         ctx.fillStyle = isDark ? '#484F58' : '#64748B';
-        ctx.font = '9px "JetBrains Mono", monospace';
-        ctx.fillText(`km ${station.kmMark}`, MARGIN.left - 10, y + 6);
-        ctx.font = '11px Inter, sans-serif';
+        ctx.font = '8px "JetBrains Mono", monospace';
+        ctx.fillText(`km ${station.kmMark}`, MARGIN.left - 6, y + 6);
+        ctx.font = width < 500 ? '9px Inter, sans-serif' : '11px Inter, sans-serif';
       });
 
       // 2. Draw time vertical lines & labels (X-axis)
@@ -134,10 +188,16 @@ export function useMareyDiagram({
         const is2Hour = m % 120 === 0;
 
         ctx.strokeStyle = is2Hour
-          ? (isDark ? '#38455A' : '#CBD5E1')
+          ? isDark
+            ? '#38455A'
+            : '#CBD5E1'
           : isHour
-            ? (isDark ? '#263040' : '#E2E8F0')
-            : (isDark ? '#151B26' : '#F1F5F9');
+            ? isDark
+              ? '#263040'
+              : '#E2E8F0'
+            : isDark
+              ? '#151B26'
+              : '#F1F5F9';
         ctx.lineWidth = is2Hour ? 1.5 : 1;
 
         ctx.beginPath();
@@ -146,133 +206,114 @@ export function useMareyDiagram({
         ctx.stroke();
 
         if (isHour) {
-          const hour = Math.floor(m / 60);
-          ctx.fillStyle = is2Hour
-            ? (isDark ? '#F1F5F9' : '#0F172A')
-            : (isDark ? '#94A3B8' : '#64748B');
-          ctx.font = is2Hour ? 'bold 11px "JetBrains Mono", monospace' : '10px "JetBrains Mono", monospace';
-          ctx.fillText(`${hour.toString().padStart(2, '0')}:00`, x, height - MARGIN.bottom + 8);
+          ctx.fillStyle = isDark ? '#94A3B8' : '#64748B';
+          ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.fillText(formatMinutesToTime(m), x, MARGIN.top - 20);
         }
       }
 
-      // Clip to diagram plot area for blocks and train paths
+      // Clip plot area for dynamic items
       ctx.save();
       ctx.beginPath();
       ctx.rect(MARGIN.left, MARGIN.top, plotWidth, plotHeight);
       ctx.clip();
 
-      // 3. Draw Approved Block Windows (#238636 rectangles at 20% opacity)
-      proposals
-        .filter((p) => p.status === 'APPROVED' || p.status === 'ACTIVE')
-        .forEach((p) => {
-          const startMin = getMinutesFromISO(p.actualGrantedStart || p.requestedStart);
-          const duration = p.actualGrantedDuration || p.requestedDuration;
-          const endMin = startMin + duration;
-
-          const x1 = timeToX(startMin);
-          const x2 = timeToX(endMin);
-          const y1 = kmToY(p.section.fromKm);
-          const y2 = kmToY(p.section.toKm);
-
-          const blockW = Math.max(x2 - x1, 4);
-          const blockH = Math.max(Math.abs(y2 - y1), 6);
-          const blockY = Math.min(y1, y2);
-
-          // Fill
-          ctx.fillStyle = isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(21, 128, 61, 0.15)';
-          ctx.fillRect(x1, blockY, blockW, blockH);
-
-          // Border
-          ctx.strokeStyle = isDark ? '#22C55E' : '#15803D';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(x1, blockY, blockW, blockH);
-
-          // Text label
-          ctx.fillStyle = isDark ? '#22C55E' : '#15803D';
-          ctx.font = 'bold 10px "JetBrains Mono", monospace';
-          ctx.fillText(`[${p.blockType}] km ${p.section.fromKm}–${p.section.toKm}`, x1 + 6, blockY + 12);
-        });
-
-      // 4. Draw Shadow Block Slots (AI-Recommended) — dashed-border
-      proposals
-        .filter((p) => p.status === 'AI_RECOMMENDED' || p.status === 'PENDING' || p.status === 'UNDER_REVIEW')
-        .forEach((p) => {
-          const startMin = getMinutesFromISO(p.requestedStart);
-          const endMin = startMin + p.requestedDuration;
-
-          const x1 = timeToX(startMin);
-          const x2 = timeToX(endMin);
-          const y1 = kmToY(p.section.fromKm);
-          const y2 = kmToY(p.section.toKm);
-
-          const blockW = Math.max(x2 - x1, 4);
-          const blockH = Math.max(Math.abs(y2 - y1), 6);
-          const blockY = Math.min(y1, y2);
-
-          const isSelected = selectedProposalId === p.proposalId;
-
-          // Dashed border
-          ctx.save();
-          ctx.setLineDash([4, 4]);
-          ctx.strokeStyle = isSelected
-            ? (isDark ? '#A5D6FF' : '#0284C7')
-            : (isDark ? '#38BDF8' : '#0284C7');
-          ctx.lineWidth = isSelected ? 2.5 : 1.5;
-          ctx.strokeRect(x1, blockY, blockW, blockH);
-
-          if (isSelected) {
-            ctx.fillStyle = isDark ? 'rgba(56, 189, 248, 0.18)' : 'rgba(2, 132, 199, 0.12)';
-            ctx.fillRect(x1, blockY, blockW, blockH);
-          }
-          ctx.restore();
-
-          // Label
-          ctx.fillStyle = isSelected
-            ? (isDark ? '#A5D6FF' : '#0284C7')
-            : (isDark ? '#38BDF8' : '#0369A1');
-          ctx.font = 'bold 10px "JetBrains Mono", monospace';
-          ctx.fillText(`AI SLOT ${p.proposalId}`, x1 + 4, blockY + 12);
-        });
-
-      // 5. Draw Conflict Zones
-      proposals
-        .filter((p) => p.status === 'PENDING' && p.aiPriorityScore < 0.5)
-        .forEach((p) => {
+      // 3. Draw Conflict Translucent Overlays
+      proposals.forEach((p) => {
+        if (p.affectedTrains && p.affectedTrains.length > 0 && p.status === 'UNDER_REVIEW') {
           const startMin = getMinutesFromISO(p.requestedStart);
           const x1 = timeToX(startMin);
           const x2 = timeToX(startMin + p.requestedDuration);
           const y1 = kmToY(p.section.fromKm);
           const y2 = kmToY(p.section.toKm);
 
-          ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(185, 28, 28, 0.15)';
-          ctx.fillRect(x1, Math.min(y1, y2), x2 - x1, Math.abs(y2 - y1));
-        });
+          // Low-performance devices render solid without composite blending
+          if (isLowPerformance) {
+            ctx.fillStyle = '#EF4444';
+            ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+          } else {
+            ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.15)';
+            ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+            ctx.strokeStyle = '#EF4444';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+          }
+        }
+      });
 
-      // 6. Draw Train Paths
+      // 4. Draw Shadow Block Proposals
+      proposals.forEach((p) => {
+        const startMin = getMinutesFromISO(p.requestedStart);
+        const x1 = timeToX(startMin);
+        const x2 = timeToX(startMin + p.requestedDuration);
+        const y1 = kmToY(p.section.fromKm);
+        const y2 = kmToY(p.section.toKm);
+
+        const isSelected = selectedProposalId === p.proposalId;
+        const isRecommended = p.status === 'AI_RECOMMENDED';
+        const isApproved = p.status === 'APPROVED';
+
+        let fillColor = isDark ? 'rgba(180, 83, 9, 0.25)' : 'rgba(180, 83, 9, 0.18)';
+        let strokeColor = '#B45309';
+
+        if (isApproved) {
+          fillColor = isDark ? 'rgba(21, 128, 61, 0.25)' : 'rgba(21, 128, 61, 0.18)';
+          strokeColor = '#15803D';
+        } else if (isRecommended) {
+          fillColor = isDark ? 'rgba(2, 132, 199, 0.25)' : 'rgba(2, 132, 199, 0.18)';
+          strokeColor = '#0284C7';
+        }
+
+        const rectX = Math.min(x1, x2);
+        const rectY = Math.min(y1, y2);
+        const rectW = Math.max(Math.abs(x2 - x1), 8);
+        const rectH = Math.max(Math.abs(y2 - y1), 8);
+
+        ctx.fillStyle = fillColor;
+        ctx.fillRect(rectX, rectY, rectW, rectH);
+
+        ctx.strokeStyle = isSelected ? '#38BDF8' : strokeColor;
+        ctx.lineWidth = isSelected ? 2.5 : 1.5;
+        if (!isApproved) {
+          ctx.setLineDash([4, 4]);
+        } else {
+          ctx.setLineDash([]);
+        }
+        ctx.strokeRect(rectX, rectY, rectW, rectH);
+        ctx.setLineDash([]);
+
+        // Label
+        if (rectW > 24) {
+          ctx.fillStyle = isDark ? '#F1F5F9' : '#0F172A';
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(p.department, rectX + 4, rectY + 12);
+        }
+      });
+
+      // 5. Draw Train Paths
       trains.forEach((train) => {
         const depMin = getMinutesFromISO(train.scheduledDeparture) + train.currentDelayMinutes;
         const arrMin = getMinutesFromISO(train.scheduledArrival) + train.currentDelayMinutes;
 
-        // Path coordinates from GZB (km 0) to CNB (km 412)
         const x1 = timeToX(depMin);
         const y1 = kmToY(0);
         const x2 = timeToX(arrMin);
         const y2 = kmToY(412);
 
-        // Styling by priority
         ctx.save();
         if (train.priority === 1) {
-          ctx.strokeStyle = isDark ? '#38BDF8' : '#0284C7'; // P1: bold blue
+          ctx.strokeStyle = isDark ? '#38BDF8' : '#0284C7';
           ctx.lineWidth = 2.5;
         } else if (train.priority === 2) {
-          ctx.strokeStyle = isDark ? '#94A3B8' : '#64748B'; // P2: slate
+          ctx.strokeStyle = isDark ? '#94A3B8' : '#64748B';
           ctx.lineWidth = 1.5;
         } else if (train.serviceType === 'ENGINEERING_SPECIAL') {
-          ctx.strokeStyle = isDark ? '#F59E0B' : '#B45309'; // Engineering
+          ctx.strokeStyle = isDark ? '#F59E0B' : '#B45309';
           ctx.lineWidth = 1.5;
           ctx.setLineDash([3, 3]);
         } else {
-          ctx.strokeStyle = isDark ? '#475569' : '#94A3B8'; // Freight / ECS
+          ctx.strokeStyle = isDark ? '#475569' : '#94A3B8';
           ctx.lineWidth = 1;
           ctx.setLineDash([6, 4]);
         }
@@ -282,99 +323,215 @@ export function useMareyDiagram({
         ctx.lineTo(x2, y2);
         ctx.stroke();
 
-        // Train Number Label rotated along path angle
-        const midX = (x1 + x2) / 2;
-        const midY = (y1 + y2) / 2;
+        // Path Labels (skipped on low-performance devices if benchmark elapsed > 20ms)
+        if (!isLowPerformance) {
+          const midX = (x1 + x2) / 2;
+          const midY = (y1 + y2) / 2;
 
-        if (midX >= MARGIN.left && midX <= width - MARGIN.right) {
-          const angle = Math.atan2(y2 - y1, x2 - x1);
-          ctx.translate(midX, midY);
-          ctx.rotate(angle);
+          if (midX >= MARGIN.left && midX <= width - MARGIN.right) {
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            ctx.translate(midX, midY);
+            ctx.rotate(angle);
 
-          ctx.fillStyle = isDark ? '#7DD3FC' : '#0369A1';
-          ctx.font = 'bold 10px "JetBrains Mono", monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(train.trainNumber, 0, -3);
+            ctx.fillStyle = isDark ? '#7DD3FC' : '#0369A1';
+            ctx.font = 'bold 9px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(train.trainNumber, 0, -2);
 
-          ctx.rotate(-angle);
-          ctx.translate(-midX, -midY);
+            ctx.rotate(-angle);
+            ctx.translate(-midX, -midY);
+          }
         }
 
         ctx.restore();
       });
 
       ctx.restore(); // Restore clipping
+      ctx.restore(); // Restore DPR scale
+      setCanvasDirty(false);
+
+      if (!isLowPerformance) {
+        animationFrameId = requestAnimationFrame(render);
+      }
     };
 
     animationFrameId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [trains, proposals, selectedProposalId, zoom, panX, isDark]);
 
-  // Handle Canvas Pan & Zoom Mouse Events
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    isDraggingRef.current = true;
-    dragStartXRef.current = e.clientX;
-    currentPanXRef.current = panX;
-  }, [panX]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isDraggingRef.current) {
-      const deltaX = e.clientX - dragStartXRef.current;
-      setPanX(currentPanXRef.current + deltaX);
-      return;
-    }
-
-    // Check hit test for hover tooltip
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const plotWidth = canvas.width - MARGIN.left - MARGIN.right;
-    const plotHeight = canvas.height - MARGIN.top - MARGIN.bottom;
-
-    const timeToX = (minutes: number) => {
-      const normalized = (minutes - START_MINUTE) / TOTAL_MINUTES;
-      return MARGIN.left + (normalized * plotWidth * zoom) + panX;
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
-    const kmToY = (km: number) => MARGIN.top + (km / TOTAL_KM) * plotHeight;
+  }, [trains, proposals, selectedProposalId, zoom, panX, isDark, isLowPerformance, canvasDirty, getMargin, setCanvasDirty]);
 
-    // Find if hovering over a block proposal
-    let found = false;
-    for (const p of proposals) {
-      const startMin = getMinutesFromISO(p.requestedStart);
-      const x1 = timeToX(startMin);
-      const x2 = timeToX(startMin + p.requestedDuration);
-      const y1 = kmToY(p.section.fromKm);
-      const y2 = kmToY(p.section.toKm);
+  // Pointer Events API Implementation
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-      const blockX = Math.min(x1, x2);
-      const blockW = Math.max(Math.abs(x2 - x1), 6);
-      const blockY = Math.min(y1, y2);
-      const blockH = Math.max(Math.abs(y2 - y1), 6);
+      canvas.setPointerCapture(e.pointerId);
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-      if (
-        mouseX >= blockX &&
-        mouseX <= blockX + blockW &&
-        mouseY >= blockY &&
-        mouseY <= blockY + blockH
-      ) {
-        setHoveredBlock({ proposal: p, x: e.clientX, y: e.clientY });
-        found = true;
-        break;
+      pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
+
+      // Single pointer pan start
+      if (activePointersRef.current.size === 1) {
+        dragStartRef.current = { x: e.clientX, y: e.clientY, initialPan: panX };
+        lastPanTimeRef.current = performance.now();
+        lastPanXRef.current = e.clientX;
+        velocityRef.current = 0;
+
+        if (momentumAnimRef.current) {
+          cancelAnimationFrame(momentumAnimRef.current);
+          momentumAnimRef.current = null;
+        }
+      } else if (activePointersRef.current.size === 2) {
+        // Two-pointer pinch zoom start
+        const pts = Array.from(activePointersRef.current.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        pinchDistanceRef.current = dist;
       }
-    }
+    },
+    [panX]
+  );
 
-    if (!found) {
-      setHoveredBlock(null);
-    }
-  }, [panX, zoom, proposals]);
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!activePointersRef.current.has(e.pointerId)) return;
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  const handleMouseUp = useCallback(() => {
-    isDraggingRef.current = false;
-  }, []);
+      // Two-pointer Pinch Zoom
+      if (activePointersRef.current.size === 2 && pinchDistanceRef.current) {
+        const pts = Array.from(activePointersRef.current.values());
+        const newDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const factor = newDist / pinchDistanceRef.current;
+
+        setZoom((prev) => Math.max(0.6, Math.min(4.0, prev * factor)));
+        pinchDistanceRef.current = newDist;
+        return;
+      }
+
+      // Single pointer Pan
+      if (activePointersRef.current.size === 1 && dragStartRef.current) {
+        const deltaX = e.clientX - dragStartRef.current.x;
+        const now = performance.now();
+        const dt = now - lastPanTimeRef.current;
+
+        if (dt > 10) {
+          const dx = e.clientX - lastPanXRef.current;
+          velocityRef.current = dx / dt;
+          lastPanTimeRef.current = now;
+          lastPanXRef.current = e.clientX;
+        }
+
+        setPanX(dragStartRef.current.initialPan + deltaX);
+        return;
+      }
+    },
+    []
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+
+      // Check for tap (< 8px movement)
+      if (pointerDownPosRef.current) {
+        const dist = Math.hypot(
+          e.clientX - pointerDownPosRef.current.x,
+          e.clientY - pointerDownPosRef.current.y
+        );
+
+        if (dist < 8) {
+          // Tap detected! Hit-test shadow blocks with 20px radius
+          if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const tapX = e.clientX - rect.left;
+            const tapY = e.clientY - rect.top;
+
+            const MARGIN = getMargin(canvas.clientWidth);
+            const plotWidth = canvas.clientWidth - MARGIN.left - MARGIN.right;
+            const plotHeight = canvas.clientHeight - MARGIN.top - MARGIN.bottom;
+
+            const timeToX = (minutes: number) => {
+              const normalized = (minutes - START_MINUTE) / TOTAL_MINUTES;
+              return MARGIN.left + normalized * plotWidth * zoom + panX;
+            };
+            const kmToY = (km: number) => MARGIN.top + (km / TOTAL_KM) * plotHeight;
+
+            let selectedBlock = false;
+            for (const p of proposals) {
+              const startMin = getMinutesFromISO(p.requestedStart);
+              const x1 = timeToX(startMin);
+              const x2 = timeToX(startMin + p.requestedDuration);
+              const y1 = kmToY(p.section.fromKm);
+              const y2 = kmToY(p.section.toKm);
+
+              const blockX = Math.min(x1, x2) - 20; // 20px expanded tap zone
+              const blockW = Math.max(Math.abs(x2 - x1), 8) + 40;
+              const blockY = Math.min(y1, y2) - 20;
+              const blockH = Math.max(Math.abs(y2 - y1), 8) + 40;
+
+              if (tapX >= blockX && tapX <= blockX + blockW && tapY >= blockY && tapY <= blockY + blockH) {
+                onSelectBlock(p.proposalId);
+                selectedBlock = true;
+                break;
+              }
+            }
+
+            // If not a block tap, check if tapping a train path
+            if (!selectedBlock) {
+              let foundTrain = false;
+              for (const t of trains) {
+                const depMin = getMinutesFromISO(t.scheduledDeparture) + t.currentDelayMinutes;
+                const arrMin = getMinutesFromISO(t.scheduledArrival) + t.currentDelayMinutes;
+                const x1 = timeToX(depMin);
+                const y1 = kmToY(0);
+                const x2 = timeToX(arrMin);
+                const y2 = kmToY(412);
+
+                // Distance from tap point to line segment
+                const d = distToSegment(tapX, tapY, x1, y1, x2, y2);
+                if (d < 16) {
+                  setSelectedTrain({ train: t, x: e.clientX, y: e.clientY });
+                  foundTrain = true;
+                  break;
+                }
+              }
+
+              if (!foundTrain) {
+                setSelectedTrain(null);
+              }
+            }
+          }
+        }
+      }
+
+      activePointersRef.current.delete(e.pointerId);
+      if (activePointersRef.current.size === 0) {
+        dragStartRef.current = null;
+        pointerDownPosRef.current = null;
+        pinchDistanceRef.current = null;
+
+        // Apply momentum scroll
+        if (Math.abs(velocityRef.current) > 0.2) {
+          let currentVelocity = velocityRef.current * 16;
+          const applyMomentum = () => {
+            currentVelocity *= 0.92;
+            if (Math.abs(currentVelocity) > 0.5) {
+              setPanX((prev) => prev + currentVelocity);
+              momentumAnimRef.current = requestAnimationFrame(applyMomentum);
+            }
+          };
+          momentumAnimRef.current = requestAnimationFrame(applyMomentum);
+        }
+      }
+    },
+    [getMargin, zoom, panX, proposals, trains, onSelectBlock]
+  );
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -382,25 +539,29 @@ export function useMareyDiagram({
     setZoom((prev) => Math.max(0.6, Math.min(4.0, prev * zoomFactor)));
   }, []);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (hoveredBlock) {
-      onSelectBlock(hoveredBlock.proposal.proposalId);
-    }
-  }, [hoveredBlock, onSelectBlock]);
-
   return {
     canvasRef,
     hoveredBlock,
+    selectedTrain,
+    setSelectedTrain,
     zoom,
     setZoom,
     setPanX,
     events: {
-      onMouseDown: handleMouseDown,
-      onMouseMove: handleMouseMove,
-      onMouseUp: handleMouseUp,
-      onMouseLeave: handleMouseUp,
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+      onPointerCancel: handlePointerUp,
       onWheel: handleWheel,
-      onClick: handleClick,
     },
   };
+}
+
+// Distance from point (px, py) to line segment (x1, y1)-(x2, y2)
+function distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+  const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+  if (l2 === 0) return Math.hypot(px - x1, py - y1);
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
 }
